@@ -28,20 +28,24 @@ class Farmer(db.Model):
     kephis_certified = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.TIMESTAMP, default=datetime.utcnow)
 
-    products = db.relationship('Product', backref='farmer', lazy=True)
+    produce = db.relationship('Produce', backref='farmer', lazy=True)
     orders = db.relationship('Order', backref='farmer', lazy=True)
     reviews = db.relationship('Review', backref='farmer', lazy=True)
 
 
-class Product(db.Model):
-    __tablename__ = 'products'
+class Produce(db.Model):  # Changed from Product to Produce
+    __tablename__ = 'produce'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     category = db.Column(db.String(100))
     unit_price = db.Column(db.Numeric(10,2), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)  # Added quantity to match API
+    quality = db.Column(db.String(50), nullable=False)  # Added quality field
     farmer_id = db.Column(db.Integer, db.ForeignKey('farmers.id'), nullable=False)
     created_at = db.Column(db.TIMESTAMP, default=datetime.utcnow)
+
+    orders = db.relationship('Order', backref='produce', lazy=True)  # Linked to orders
 
 
 class Order(db.Model):
@@ -49,11 +53,11 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     vendor_id = db.Column(db.Integer, db.ForeignKey('vendors.id'), nullable=False)
     farmer_id = db.Column(db.Integer, db.ForeignKey('farmers.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+    produce_id = db.Column(db.Integer, db.ForeignKey('produce.id'), nullable=False)  # Changed to match API
     quantity = db.Column(db.Integer, nullable=False)
     total_price = db.Column(db.Numeric(10,2), nullable=False)
     deposit_paid = db.Column(db.Boolean, default=False)
-    order_status = db.Column(db.String(20), nullable=False)
+    order_status = db.Column(db.String(20), default="Pending")  # Default "Pending"
     mpesa_code = db.Column(db.String(50))
     created_at = db.Column(db.TIMESTAMP, default=datetime.utcnow)
 
