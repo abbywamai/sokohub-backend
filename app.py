@@ -4,6 +4,7 @@ from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import os
 from models import db, Vendor, Farmer, Produce, Order, Payment, Review
+from mpesa import lipa_na_mpesa_pochi
 
 
 app = Flask(__name__)
@@ -108,7 +109,54 @@ def get_orders():
     return jsonify(result)
 
 
+# M-Pesa Payment Route
+@app.route("/api/payment/mpesa", methods=["POST"])
+@jwt_required()
+def mpesa_payment():
+    data = request.get_json()
+    vendor_id = get_jwt_identity()
 
+    vendor = Vendor.query.get_or_404(vendor_id)
+    farmer = Farmer.query.get_or_404(data["farmer_id"])
+
+    amount = data["amount"]
+    phone_number = vendor.phone  # Vendor's phone number
+    farmer_number = farmer.phone  # Farmer's Pochi number (MSISDN format)
+
+    # Initiate payment via M-Pesa
+    response = lipa_na_mpesa_pochi(phone_number, amount, farmer_number)
+
+    if response.get("ResponseCode") == "0":
+        # Record the payment in the database
+        payment = Payment(
+            vendor_id=vendor.id,
+            farmer_id=farmer.id,
+            amount=amount,
+            transaction_status="Pending",  # We can update this based on M-Pesa callback
+            transaction_id=response.get("MerchantRequestID")
+        )
+        db.session.add(payment)
+        db.session.commit()
+
+        return jsonify({"message": "Payment initiated successfully", "payment_id": payment.id, "response": response}), 200
+    else:
+        return jsonify({"message": "Payment initiation failed", "response": response}), 400
+
+# M-Pesa Callback Route (M-Pesa will call this URL after the transaction is processed)
+@app.route("/api/mpesa/callback", methods=["POST"])
+def mpesa_callback():
+    data = request.get_json()
+
+    # Process the callback from M-Pesa (e.g., update payment status)
+    transaction_id = data.get("TransactionID")
+    payment = Payment.query.filter_by(transaction_id=transaction_id).first()
+
+    if payment:
+        payment.transaction_status = "Completed" if data.get("ResponseCode") == "0" else "Failed"
+        db.session.commit()
+        return jsonify({"message": "Callback processed successfully"}), 200
+    else:
+        return jsonify({"message": "Payment not found"}), 404
 
 
 if __name__ == "__main__":
