@@ -100,21 +100,28 @@ def login():
     return jsonify({"message": "Invalid credentials"}), 401
 
 # Produce Routes (unchanged)
-@app.route("/api/produce", methods=["GET"])
+@app.route('/api/produce', methods=['GET'])
 def get_produce():
-    produce_list = Produce.query.all()
-    result = [
-        {
-            "id": p.id,
-            "name": p.name,
-            "quantity": p.quantity,
-            "price": p.price,
-            "quality": p.quality,
-            "farmer": p.farmer.name,
-        }
-        for p in produce_list
-    ]
-    return jsonify(result)
+    category = request.args.get('category')
+    
+    if category:
+        produce_items = Produce.query.filter_by(category=category).all()
+    else:
+        produce_items = Produce.query.all()
+    
+    result = []
+    for produce in produce_items:
+        result.append({
+            'id': produce.id,
+            'name': produce.name,
+            'price': produce.price,
+            'quantity': produce.quantity,
+            'category': produce.category,
+            'farmer_id': produce.farmer_id,
+            'location': produce.location
+        })
+    
+    return jsonify(result), 200
 
 @app.route("/api/produce/<int:produce_id>", methods=["GET"])
 def get_produce_details(produce_id):
