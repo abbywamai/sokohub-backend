@@ -5,7 +5,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 import os
 from models import db, Vendor, Farmer, Produce, Order, Payment, Review
 from mpesa import lipa_na_mpesa_pochi
-
+from datetime import datetime
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://postgres:wamai@localhost/sokohub"
@@ -15,7 +15,68 @@ db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 
-# Authentication Routes
+# Farmer Authentication Routes
+@app.route("/api/farmer/register", methods=["POST"])
+def farmer_register():
+    data = request.get_json()
+
+    # Check if the farmer already exists
+    existing_farmer = Farmer.query.filter_by(email=data["email"]).first()
+    if existing_farmer:
+        return jsonify({"message": "Farmer already exists"}), 400
+
+    hashed_password = bcrypt.generate_password_hash(data["password"]).decode("utf-8")
+
+    farmer = Farmer(
+        name=data["name"],
+        email=data["email"],
+        phone=data["phone"],
+        mpesa=data["mpesa"],
+        whatsapp_link=data.get("whatsapp_link"),
+        location=data.get("location"),
+        kephis_certified=data.get("kephis_certified", False)
+    )
+    db.session.add(farmer)
+    db.session.commit()
+
+    return jsonify({"message": "Farmer registered successfully"}), 201
+
+@app.route("/api/farmer/login", methods=["POST"])
+def farmer_login():
+    data = request.get_json()
+    farmer = Farmer.query.filter_by(email=data["email"]).first()
+
+    if farmer and bcrypt.check_password_hash(farmer.password, data["password"]):
+        token = create_access_token(identity=farmer.id)
+        return jsonify({"access_token": token})
+
+    return jsonify({"message": "Invalid credentials"}), 401
+
+# Post Produce Route
+@app.route("/api/farmer/produce", methods=["POST"])
+@jwt_required()
+def post_produce():
+    data = request.get_json()
+    farmer_id = get_jwt_identity()
+
+    # Check if the farmer exists
+    farmer = Farmer.query.get_or_404(farmer_id)
+
+    # Create new produce
+    produce = Produce(
+        name=data["name"],
+        quantity=data["quantity"],
+        price=data["price"],
+        quality=data["quality"],
+        farmer_id=farmer.id,
+        created_at=datetime.utcnow()
+    )
+    db.session.add(produce)
+    db.session.commit()
+
+    return jsonify({"message": "Produce posted successfully", "produce_id": produce.id}), 201
+
+# Authentication Routes for Vendor (unchanged)
 @app.route("/api/auth/register", methods=["POST"])
 def register():
     data = request.get_json()
@@ -26,8 +87,6 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "Vendor registered successfully"}), 201
-
-
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
@@ -40,7 +99,7 @@ def login():
 
     return jsonify({"message": "Invalid credentials"}), 401
 
-# Produce Routes
+# Produce Routes (unchanged)
 @app.route("/api/produce", methods=["GET"])
 def get_produce():
     produce_list = Produce.query.all()
@@ -69,7 +128,7 @@ def get_produce_details(produce_id):
         "farmer": produce.farmer.name,
     })
 
-# Order Routes
+# Order Routes (unchanged)
 @app.route("/api/orders", methods=["POST"])
 @jwt_required()
 def create_order():
@@ -108,8 +167,7 @@ def get_orders():
     ]
     return jsonify(result)
 
-
-# M-Pesa Payment Route
+# M-Pesa Payment Route (unchanged)
 @app.route("/api/payment/mpesa", methods=["POST"])
 @jwt_required()
 def mpesa_payment():

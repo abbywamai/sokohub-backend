@@ -24,6 +24,7 @@ class Farmer(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     phone = db.Column(db.String(15), nullable=False)
+    mpesa = db.Column(db.String(15), nullable=False)
     whatsapp_link = db.Column(db.String(255))
     location = db.Column(db.String(100))
     kephis_certified = db.Column(db.Boolean, default=False)
