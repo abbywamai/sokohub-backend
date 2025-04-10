@@ -123,6 +123,13 @@ def get_produce():
     
     return jsonify(result), 200
 
+@app.route('/api/produce/categories', methods=['GET'])
+def get_produce_categories():
+    categories = db.session.query(Produce.category).distinct().all()
+    category_list = [c[0] for c in categories if c[0]]  # Flatten and ignore None
+    return jsonify(category_list), 200
+
+
 @app.route("/api/produce/<int:produce_id>", methods=["GET"])
 def get_produce_details(produce_id):
     produce = Produce.query.get_or_404(produce_id)
