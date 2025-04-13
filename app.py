@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from sqlalchemy import and_
 import os
 from models import db, Vendor, Farmer, Produce, Order, Payment, Review
 from mpesa import lipa_na_mpesa_pochi
@@ -133,6 +134,7 @@ def get_produce_categories():
 @app.route("/api/produce/<int:produce_id>", methods=["GET"])
 def get_produce_details(produce_id):
     produce = Produce.query.get_or_404(produce_id)
+    farmer = Farmer.query.get_or_404(produce.farmer_id)
     return jsonify({
         "id": produce.id,
         "name": produce.name,
@@ -140,6 +142,9 @@ def get_produce_details(produce_id):
         "price": produce.price,
         "quality": produce.quality,
         "farmer": produce.farmer.name,
+        "location": farmer.location,
+        "farmer_name": farmer.name,
+        "whatsapp_link": farmer.whatsapp_link,
     })
 
 # Order Routes (unchanged)
@@ -148,38 +153,74 @@ def get_produce_details(produce_id):
 def create_order():
     data = request.get_json()
     vendor_id = get_jwt_identity()
-    
+
     produce = Produce.query.get_or_404(data["produce_id"])
+
     if data["quantity"] > produce.quantity:
         return jsonify({"message": "Not enough stock available"}), 400
+
+    total_price = produce.unit_price * data["quantity"]
 
     order = Order(
         produce_id=data["produce_id"],
         vendor_id=vendor_id,
+        farmer_id=produce.farmer_id,
         quantity=data["quantity"],
-        status="Pending",
+        total_price=total_price,
+        order_status="Pending",
+        deposit_paid=False,
+        mpesa_code=None,
     )
     db.session.add(order)
     db.session.commit()
 
-    return jsonify({"message": "Order placed successfully", "order_id": order.id})
+    return jsonify({
+        "message": "Order placed successfully",
+        "order_id": order.id
+    }), 201
+
 
 @app.route("/api/orders", methods=["GET"])
 @jwt_required()
 def get_orders():
     vendor_id = get_jwt_identity()
-    orders = Order.query.filter_by(vendor_id=vendor_id).all()
+    status_filter = request.args.get("status")
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
 
-    result = [
-        {
+    query = Order.query.filter_by(vendor_id=vendor_id)
+
+    if status_filter:
+        query = query.filter(Order.order_status.ilike(status_filter))
+
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.fromisoformat(start_date_str)
+            end_date = datetime.fromisoformat(end_date_str)
+            query = query.filter(and_(
+                Order.created_at >= start_date,
+                Order.created_at <= end_date
+            ))
+        except ValueError:
+            return jsonify({"message": "Invalid date format. Use YYYY-MM-DD."}), 400
+
+    orders = query.order_by(Order.created_at.desc()).all()
+
+    result = []
+    for o in orders:
+        produce = Produce.query.get(o.produce_id)
+        result.append({
             "id": o.id,
-            "produce": o.produce.name,
+            "produce": produce.name if produce else "Unknown",
             "quantity": o.quantity,
-            "status": o.status,
-        }
-        for o in orders
-    ]
-    return jsonify(result)
+            "total_price": float(o.total_price),
+            "deposit_paid": o.deposit_paid,
+            "order_status": o.order_status,
+            "mpesa_code": o.mpesa_code,
+            "created_at": o.created_at.isoformat()
+        })
+
+    return jsonify(result), 200
 
 # M-Pesa Payment Route (unchanged)
 @app.route("/api/payment/mpesa", methods=["POST"])
@@ -229,6 +270,28 @@ def mpesa_callback():
         return jsonify({"message": "Callback processed successfully"}), 200
     else:
         return jsonify({"message": "Payment not found"}), 404
+
+#reviews route
+@app.route("/api/reviews", methods=["POST"])
+@jwt_required()
+def submit_review():
+    data = request.get_json()
+    vendor_id = get_jwt_identity()
+
+    # Validate required fields
+    if not data.get("farmer_id") or not data.get("rating"):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    review = Review(
+        vendor_id=vendor_id,
+        farmer_id=data["farmer_id"],
+        rating=data["rating"],
+        comment=data.get("comment")
+    )
+    db.session.add(review)
+    db.session.commit()
+
+    return jsonify({"message": "Review submitted successfully"}), 201
 
 
 if __name__ == "__main__":
